@@ -13,7 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Search, Camera, X, MapPin, Loader2, Palette } from "lucide-react";
+import { Search, Camera, X, MapPin, Loader2, Palette, Copy } from "lucide-react";
 import type { StyleSpecification } from "maplibre-gl";
 
 interface NominatimResult {
@@ -108,6 +108,8 @@ const COLOR_GROUPS: { label: string; items: { key: ColorKey; label: string }[] }
     ],
   },
 ];
+
+const COLOR_KEYS_IN_ORDER = COLOR_GROUPS.flatMap(g => g.items.map(i => i.key));
 
 // ─── Single colour row inside the theme dialog ────────────────────────────────
 function ColorRow({
@@ -491,6 +493,34 @@ export default function MapView() {
     setColors(prev => ({ ...prev, [key]: value }));
   }, []);
 
+  const [bulkValue, setBulkValue] = useState("");
+
+  const applyBulkString = useCallback((raw: string) => {
+    // Try #-prefixed hex codes first (3 or 6 digits)
+    let hexes = (raw.match(/#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\b/g) ?? [])
+      .map(h => h.length === 4
+        ? `#${h[1]}${h[1]}${h[2]}${h[2]}${h[3]}${h[3]}`
+        : h.toLowerCase());
+    // Fallback: strip non-hex chars, chunk into 6-char groups
+    if (hexes.length === 0) {
+      const stripped = raw.replace(/[^0-9a-fA-F]/gi, "");
+      hexes = (stripped.match(/.{6}/g) ?? []).map(h => `#${h.toLowerCase()}`);
+    }
+    if (hexes.length === 0) return;
+    setColors(prev => {
+      const next = { ...prev };
+      hexes.slice(0, COLOR_KEYS_IN_ORDER.length).forEach((hex, i) => {
+        next[COLOR_KEYS_IN_ORDER[i]] = hex;
+      });
+      return next;
+    });
+  }, []);
+
+  const copyPalette = useCallback(() => {
+    const str = COLOR_KEYS_IN_ORDER.map(k => colors[k]).join(" ");
+    navigator.clipboard.writeText(str);
+  }, [colors]);
+
   // ── Loading screen ────────────────────────────────────────────────────────
   if (!mapStyle) {
     return (
@@ -700,6 +730,35 @@ export default function MapView() {
               Customize the colour palette. Click a swatch to open the colour picker, or type a hex code directly.
             </DialogDescription>
           </DialogHeader>
+
+          {/* Bulk paste / copy row */}
+          <div className="px-6 pb-4 shrink-0 border-b border-neutral-100">
+            <div className="flex gap-2 items-center">
+              <input
+                type="text"
+                spellCheck={false}
+                value={bulkValue}
+                placeholder="Paste all hex codes at once…"
+                onChange={e => setBulkValue(e.target.value)}
+                onPaste={e => {
+                  e.preventDefault();
+                  const text = e.clipboardData.getData("text");
+                  setBulkValue(text);
+                  applyBulkString(text);
+                }}
+                onKeyDown={e => { if (e.key === "Enter") applyBulkString(bulkValue); }}
+                className="flex-1 text-xs font-mono text-neutral-600 border border-neutral-200 rounded-md px-2.5 py-1.5 bg-transparent focus:outline-none focus:ring-1 focus:ring-neutral-300 placeholder:text-neutral-300 placeholder:font-sans min-w-0"
+              />
+              <button
+                type="button"
+                onClick={copyPalette}
+                title="Copy current palette as hex codes"
+                className="p-1.5 text-neutral-400 hover:text-neutral-600 border border-neutral-200 rounded-md shrink-0 transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
 
           {/* Scrollable colour groups */}
           <div className="flex-1 overflow-y-auto px-6 pb-2 space-y-5">
